@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAppContext } from '../context/AppContext';
-import { MessageSquare, X, Send, ArrowLeft } from 'lucide-react';
+import { MessageSquare, X, Send, ArrowLeft, CheckCircle2 } from 'lucide-react';
 
 export default function ChatWidget() {
   const { currentUser } = useAuth();
-  const { chats, sendMessage, activeChatUser, setActiveChatUser } = useAppContext();
+  const { chats, sendMessage, activeChatUser, setActiveChatUser, customRequests, resolveCustomRequest } = useAppContext();
   
   const [isOpen, setIsOpen] = useState(false);
   const [inputText, setInputText] = useState('');
@@ -25,6 +25,20 @@ export default function ChatWidget() {
 
   if (!currentUser) return null;
 
+  // For Renters: find open requests that haven't been resolved yet
+  const allUsers = JSON.parse(localStorage.getItem('commuteiq_all_users') || '[]');
+  const activeChatUserRole = activeChatUser ? allUsers.find(u => u.id === activeChatUser.id)?.role : null;
+  const isRenterChattingWithBroker = currentUser.role === 'renter' && activeChatUserRole === 'broker';
+
+  // Open requests from this renter that are not yet resolved
+  const myOpenRequests = (customRequests || []).filter(r => r.renterId === currentUser.id && r.status !== 'resolved');
+
+  const handleMarkSatisfied = (reqId) => {
+    if (window.confirm(`Mark this request as satisfied? ${activeChatUser.name} will receive +1 credit for resolving it.`)) {
+      resolveCustomRequest(reqId, activeChatUser.id, activeChatUser.name);
+    }
+  };
+
   const myChats = chats.filter(c => c.senderId === currentUser.id || c.receiverId === currentUser.id);
   const contactIdsRaw = [...new Set(myChats.map(c => c.senderId === currentUser.id ? c.receiverId : c.senderId))];
   const contactIds = ['sys_support', ...contactIdsRaw.filter(id => id !== 'sys_support')];
@@ -37,7 +51,6 @@ export default function ChatWidget() {
   const handleSend = (e) => {
     if (e) e.preventDefault();
     if (!inputText.trim() || !activeChatUser) return;
-    
     try {
       sendMessage(activeChatUser.id, inputText);
       setInputText('');
@@ -67,9 +80,10 @@ export default function ChatWidget() {
       )}
 
       {isOpen && (
-        <div className="glass-panel animate-fade-in" style={{ width: 350, height: 500, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', pointerEvents: 'auto', background: 'rgba(20,20,30,0.95)' }}>
+        <div className="glass-panel animate-fade-in" style={{ width: 350, height: isRenterChattingWithBroker && myOpenRequests.length > 0 ? 560 : 500, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', pointerEvents: 'auto', background: 'rgba(20,20,30,0.95)', transition: 'height 0.3s ease' }}>
           
-          <div style={{ padding: '1rem', background: 'var(--accent-primary)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Header */}
+          <div style={{ padding: '1rem', background: 'var(--accent-primary)', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               {activeChatUser && (
                 <button onClick={() => setActiveChatUser(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0.2rem', borderRadius: '50%' }}>
@@ -83,6 +97,34 @@ export default function ChatWidget() {
             <button onClick={() => setIsOpen(false)} style={{ background: 'transparent', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center' }}><X size={20}/></button>
           </div>
 
+          {/* "Mark Satisfied" banner — visible only to Renters in an active Broker chat with open requests */}
+          {isRenterChattingWithBroker && myOpenRequests.length > 0 && (
+            <div style={{ background: 'rgba(16, 185, 129, 0.1)', borderBottom: '1px solid rgba(16,185,129,0.25)', padding: '0.6rem 0.75rem', flexShrink: 0 }}>
+              <p style={{ margin: '0 0 0.4rem 0', fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                Did {activeChatUser.name} resolve your query? Mark request as satisfied:
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: 80, overflowY: 'auto' }}>
+                {myOpenRequests.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => handleMarkSatisfied(r.id)}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.35rem 0.6rem', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', gap: '0.5rem', textAlign: 'left' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(16,185,129,0.12)'}
+                  >
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-primary)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {r.requirement}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--success)', fontSize: '0.7rem', fontWeight: 700, flexShrink: 0 }}>
+                      <CheckCircle2 size={13} /> Satisfied
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Messages area */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', background: 'transparent' }}>
             {!activeChatUser && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -107,7 +149,7 @@ export default function ChatWidget() {
                         {latestMsg.senderId === currentUser.id ? 'You: ' : ''}{latestMsg.text}
                       </div>
                     </button>
-                  )
+                  );
                 })}
               </div>
             )}
@@ -126,7 +168,7 @@ export default function ChatWidget() {
                           {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                         </div>
                       </div>
-                    )
+                    );
                   })
                 )}
                 <div ref={messagesEndRef} style={{ height: 1 }} />
@@ -135,7 +177,7 @@ export default function ChatWidget() {
           </div>
 
           {activeChatUser && (
-            <div style={{ padding: '0.75rem', borderTop: '1px solid var(--border-glass)', background: 'var(--bg-surface)' }}>
+            <div style={{ padding: '0.75rem', borderTop: '1px solid var(--border-glass)', background: 'var(--bg-surface)', flexShrink: 0 }}>
               <form onSubmit={handleSend} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <input 
                   autoFocus
