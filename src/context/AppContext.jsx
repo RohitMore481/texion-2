@@ -9,106 +9,86 @@ export const AppProvider = ({ children }) => {
   const { currentUser } = useAuth();
   const [properties, setProperties] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [subscriptions, setSubscriptions] = useState([]); // { userId, propertyId }
   const [loading, setLoading] = useState(true);
   
-  // Search state
-  const [filters, setFilters] = useState({
-    maxPrice: 60000,
-    maxCommute: 60, // minutes
-    amenities: [],
-    expectations: []
-  });
-
+  const [filters, setFilters] = useState({ maxPrice: 60000, maxCommute: 60, amenities: [], expectations: [], desiredLocations: [] });
   const [compareList, setCompareList] = useState([]);
 
   useEffect(() => {
-    // Seed properties into localStorage safely
     const storedProps = localStorage.getItem('commuteiq_properties');
-    if (storedProps) {
-      setProperties(JSON.parse(storedProps));
-    } else {
-      setProperties(MOCK_PROPERTIES);
-      localStorage.setItem('commuteiq_properties', JSON.stringify(MOCK_PROPERTIES));
-    }
+    setProperties(storedProps ? JSON.parse(storedProps) : MOCK_PROPERTIES);
 
     const storedNotifs = localStorage.getItem('commuteiq_notifs');
-    if (storedNotifs) {
-      setNotifications(JSON.parse(storedNotifs));
-    } else {
-      setNotifications(MOCK_NOTIFICATIONS);
-      localStorage.setItem('commuteiq_notifs', JSON.stringify(MOCK_NOTIFICATIONS));
-    }
+    setNotifications(storedNotifs ? JSON.parse(storedNotifs) : MOCK_NOTIFICATIONS);
+
+    const storedSubs = localStorage.getItem('commuteiq_subscriptions');
+    if (storedSubs) setSubscriptions(JSON.parse(storedSubs));
     
     setLoading(false);
   }, []);
 
-  // Save properties back to local storage whenever they change
   useEffect(() => {
     if (!loading) {
       localStorage.setItem('commuteiq_properties', JSON.stringify(properties));
-    }
-  }, [properties, loading]);
-
-  // Save notifications
-  useEffect(() => {
-    if (!loading) {
       localStorage.setItem('commuteiq_notifs', JSON.stringify(notifications));
+      localStorage.setItem('commuteiq_subscriptions', JSON.stringify(subscriptions));
     }
-  }, [notifications, loading]);
+  }, [properties, notifications, subscriptions, loading]);
 
   const filteredProperties = useMemo(() => {
     return properties.map(property => {
-      let commute = { distance: 0, time: 0 };
-      if (currentUser?.workplace) {
-        commute = getCommuteInfo(currentUser.workplace, property.location);
+      let bestCommute = { distance: 0, time: 0 };
+      if (filters.desiredLocations.length > 0) {
+        let minTime = Infinity; let bestDist = 0;
+        filters.desiredLocations.forEach(loc => {
+          const commute = getCommuteInfo(loc, property.location);
+          if (commute.time < minTime) { minTime = commute.time; bestDist = commute.distance; }
+        });
+        bestCommute = { distance: bestDist, time: minTime };
+      } else if (currentUser?.workplace) {
+        bestCommute = getCommuteInfo(currentUser.workplace, property.location);
       }
-      return { ...property, commute };
+      return { ...property, commute: bestCommute };
     }).filter(p => {
       if (p.price > filters.maxPrice) return false;
-      if (currentUser?.workplace && p.commute.time > filters.maxCommute) return false;
-      if (filters.expectations.length > 0) {
-        const hasExpectation = filters.expectations.some(e => p.expectations.includes(e));
-        if (!hasExpectation) return false;
-      }
-      if (filters.amenities.length > 0) {
-        const hasAllAmenities = filters.amenities.every(a => p.amenities.includes(a));
-        if (!hasAllAmenities) return false;
-      }
+      const hasTargetSet = filters.desiredLocations.length > 0 || currentUser?.workplace;
+      if (hasTargetSet && p.commute.time > filters.maxCommute) return false;
+      if (filters.expectations.length > 0 && !filters.expectations.some(e => p.expectations.includes(e))) return false;
+      if (filters.amenities.length > 0 && !filters.amenities.every(a => p.amenities.includes(a))) return false;
       return true;
     });
   }, [properties, filters, currentUser]);
 
   const toggleCompare = (property) => {
     setCompareList(prev => {
-      if (prev.find(p => p.id === property.id)) {
-        return prev.filter(p => p.id !== property.id);
-      }
-      if (prev.length >= 2) {
-        alert("You can only compare 2 properties at once.");
-        return prev;
-      }
+      if (prev.find(p => p.id === property.id)) return prev.filter(p => p.id !== property.id);
+      if (prev.length >= 2) { alert("Compare 2 properties max."); return prev; }
       return [...prev, property];
     });
   };
 
   const clearCompare = () => setCompareList([]);
 
-  const markNotificationRead = (id) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-  };
+  const markNotificationRead = (id) => setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
 
   const setPropertyStatus = (id, status) => {
     setProperties(prev => prev.map(p => {
       if (p.id === id) {
         if (p.status === 'occupied' && status === 'available') {
-          setNotifications(nprev => [{
-            id: `n_${Date.now()}`,
-            type: 'availability',
-            propertyId: id,
-            message: `Property "${p.title}" is now available!`,
-            read: false,
-            userId: 'all' // In real app, target specific users.
-          }, ...nprev]);
+          // Check for subscriptions to send alert
+          const activeSubs = subscriptions.filter(s => s.propertyId === id);
+          if (activeSubs.length > 0) {
+            const newNotifs = activeSubs.map(s => ({
+              id: `n_${Date.now()}_${s.userId}`,
+              type: 'availability',
+              propertyId: id,
+              message: `Alert! The property "${p.title}" you were watching is now AVAILABLE for rent!`,
+              read: false,
+              userId: s.userId
+            }));
+            setNotifications(nprev => [...newNotifs, ...nprev]);
+          }
         }
         return { ...p, status };
       }
@@ -116,27 +96,26 @@ export const AppProvider = ({ children }) => {
     }));
   };
   
-  // For owners to add a completely new mock property
+  const subscribeToProperty = (propertyId) => {
+    if (!currentUser) return;
+    if (subscriptions.find(s => s.propertyId === propertyId && s.userId === currentUser.id)) {
+      alert("You are already subscribed to alerts for this property.");
+      return;
+    }
+    setSubscriptions(prev => [...prev, { userId: currentUser.id, propertyId }]);
+    alert("Alert Set! You will be notified when this property becomes available.");
+  };
+
   const addProperty = (propertyData) => {
-    const newProperty = {
-      id: `p_${Date.now()}`,
-      status: 'available',
-      ownerId: currentUser?.id,
-      brokerId: 'u2', // Assign default broker for now
-      reviews: [],
-      images: ['https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=500&auto=format&fit=crop&q=60'],
-      ...propertyData
-    };
-    setProperties(prev => [newProperty, ...prev]);
+    setProperties(prev => [{ id: `p_${Date.now()}`, status: 'available', ownerId: currentUser?.id, brokerId: 'u2', reviews: [], ...propertyData }, ...prev]);
   };
 
   return (
     <AppContext.Provider value={{
       properties: filteredProperties, allProperties: properties,
-      filters, setFilters,
-      compareList, toggleCompare, clearCompare,
-      notifications, markNotificationRead,
-      setPropertyStatus, addProperty
+      filters, setFilters, compareList, toggleCompare, clearCompare,
+      notifications, markNotificationRead, setPropertyStatus, addProperty,
+      subscribeToProperty, subscriptions
     }}>
       {!loading && children}
     </AppContext.Provider>
