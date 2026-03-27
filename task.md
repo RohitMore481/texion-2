@@ -1,10 +1,14 @@
-# Phase 5: Analytics & Interactive Pinning
+# Phase 10: My Requests Tab, Broker Score & Dark/Light Mode
 
-- [x] **Data Scoring Algorithms**
-    - [x] Create `calculatePriceAccuracy` (1-10 scale based on location baseline).
-    - [x] Create `calculateSafetyRating` (1-5 stars based on location context).
-- [x] **Property View Enhancements**
-    - [x] Display Price Accuracy metric in Map Popups and List View.
-    - [x] Display Safety Star ratings in Map Popups and List View.
-- [x] **Owner Controls**
-    - [x] Allow Owner to click directly on the map to set the exact pin coordinates in `OwnerDashboard.jsx`.
+- [ ] **State Management**
+    - [ ] Add `resolvedCounts` score map to `AppContext.jsx`.
+    - [ ] Update `resolveCustomRequest` to accept a `resolvedByBrokerId` param and increment score.
+    - [ ] Allow Renter to mark their own request as resolved (passes null brokerId).
+- [ ] **Renter Dashboard**
+    - [ ] Add "My Requests" tab in `RenterDashboard.jsx` that shows submitted requests and allows resolution.
+- [ ] **Broker Dashboard**
+    - [ ] Display `resolvedCounts` for the current broker as a score badge.
+- [ ] **Dark/Light Mode**
+    - [ ] Add `theme` state + `toggleTheme` to `AuthContext` or a new `ThemeContext`.
+    - [ ] Add CSS light-mode overrides in `App.css` / `index.css`.
+    - [ ] Add Toggle button in `Navbar.jsx`.

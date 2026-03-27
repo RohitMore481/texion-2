@@ -3,7 +3,7 @@ import L from 'leaflet';
 import { useAppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import { useEffect, useState } from 'react';
-import { Search, Bell, ShieldCheck, TrendingUp } from 'lucide-react';
+import { Search, Bell, ShieldCheck, TrendingUp, MessageSquare } from 'lucide-react';
 import { calculatePriceAccuracy, calculateSafetyRating } from '../utils/scoring';
 
 delete L.Icon.Default.prototype._getIconUrl;
@@ -25,8 +25,8 @@ function MapController() {
   return null;
 }
 
-export default function MapView({ properties, onContact }) {
-  const { filters, setFilters, subscribeToProperty, subscriptions } = useAppContext();
+export default function MapView({ properties }) {
+  const { filters, setFilters, subscribeToProperty, subscriptions, setActiveChatUser } = useAppContext();
   const { currentUser } = useAuth();
   const [mapCenter, setMapCenter] = useState([28.6139, 77.2090]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -45,13 +45,12 @@ export default function MapView({ properties, onContact }) {
     } catch(err) { console.error(err); }
   };
 
-  const isUserSubscribed = (propertyId) => {
-    return subscriptions.some(s => s.propertyId === propertyId && s.userId === currentUser?.id);
-  };
+  const isUserSubscribed = (propertyId) => subscriptions.some(s => s.propertyId === propertyId && s.userId === currentUser?.id);
 
   return (
     <div style={{ height: '100%', width: '100%', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-glass)', position: 'relative' }}>
       
+      {/* Search Bar Overlay */}
       <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 500, background: 'var(--bg-surface-elevated)', padding: '0.75rem', borderRadius: 'var(--radius-md)', backdropFilter: 'blur(8px)', border: '1px solid var(--border-glass)', maxWidth: 280 }}>
         <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search city/area..." style={{ flex: 1, padding: '0.5rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-glass)', background: 'var(--bg-color)', color: 'white', outline: 'none', fontSize: '0.85rem' }} />
@@ -105,12 +104,40 @@ export default function MapView({ properties, onContact }) {
                         <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>Value</div>
                       </div>
                     </div>
+
+                    {/* Amenities & Expectations Tags */}
+                    <div style={{ marginBottom: '12px' }}>
+                      {property.amenities?.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem', marginBottom: '0.25rem' }}>
+                          {property.amenities.map((am, i) => (
+                            <span key={i} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem', background: 'var(--accent-primary)', color: 'white', borderRadius: '4px', textTransform: 'capitalize' }}>{am}</span>
+                          ))}
+                        </div>
+                      )}
+                      {property.expectations?.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.2rem' }}>
+                          {property.expectations.map((ex, i) => (
+                            <span key={i} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem', background: 'rgba(239, 68, 68, 0.2)', color: 'var(--error)', border: '1px solid var(--error)', borderRadius: '4px', textTransform: 'capitalize' }}>{ex}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     
-                    {!isAvailable && currentUser?.role === 'renter' && (
-                      <button onClick={(e) => { e.stopPropagation(); subscribeToProperty(property.id); }} disabled={isUserSubscribed(property.id)} style={{ width: '100%', padding: '0.5rem', background: isUserSubscribed(property.id) ? 'var(--bg-surface-elevated)' : 'var(--accent-secondary)', color: isUserSubscribed(property.id) ? 'var(--text-muted)' : 'black', border: 'none', borderRadius: 'var(--radius-sm)', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', cursor: isUserSubscribed(property.id) ? 'not-allowed' : 'pointer' }}>
-                        <Bell size={16} /> {isUserSubscribed(property.id) ? 'Alert Set' : 'Alert Me When Available'}
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveChatUser({ id: property.ownerId, name: 'Owner' }); }} 
+                        style={{ width: '100%', padding: '0.5rem', borderRadius: 'var(--radius-sm)', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-glass)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', cursor: 'pointer' }}
+                      >
+                        <MessageSquare size={16} /> Message Owner
                       </button>
-                    )}
+
+                      {!isAvailable && currentUser?.role === 'renter' && (
+                        <button onClick={(e) => { e.stopPropagation(); subscribeToProperty(property.id); }} disabled={isUserSubscribed(property.id)} style={{ width: '100%', padding: '0.5rem', background: isUserSubscribed(property.id) ? 'transparent' : 'var(--accent-secondary)', color: isUserSubscribed(property.id) ? 'var(--text-muted)' : 'black', border: isUserSubscribed(property.id) ? '1px solid var(--border-glass)' : 'none', borderRadius: 'var(--radius-sm)', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', cursor: isUserSubscribed(property.id) ? 'not-allowed' : 'pointer' }}>
+                          <Bell size={16} /> {isUserSubscribed(property.id) ? 'Alert Set' : 'Alert Me When Available'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </Popup>
