@@ -1,18 +1,19 @@
 import { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import { MOCK_PROPERTIES, MOCK_USERS, MOCK_NOTIFICATIONS } from '../data/mockData';
+import { MOCK_PROPERTIES, MOCK_NOTIFICATIONS } from '../data/mockData';
 import { getCommuteInfo } from '../utils/commute';
+import { useAuth } from './AuthContext';
 
 const AppContext = createContext();
 
 export const AppProvider = ({ children }) => {
-  // Current user (can be swapped for demo)
-  const [currentUser, setCurrentUser] = useState(MOCK_USERS[0]); // Renter by default
-  const [properties, setProperties] = useState(MOCK_PROPERTIES);
-  const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
+  const { currentUser } = useAuth();
+  const [properties, setProperties] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
   
   // Search state
   const [filters, setFilters] = useState({
-    maxPrice: 50000,
+    maxPrice: 60000,
     maxCommute: 60, // minutes
     amenities: [],
     expectations: []
@@ -20,7 +21,41 @@ export const AppProvider = ({ children }) => {
 
   const [compareList, setCompareList] = useState([]);
 
-  // Derived properties with commute calculated if the user is a renter with a workplace
+  useEffect(() => {
+    // Seed properties into localStorage safely
+    const storedProps = localStorage.getItem('commuteiq_properties');
+    if (storedProps) {
+      setProperties(JSON.parse(storedProps));
+    } else {
+      setProperties(MOCK_PROPERTIES);
+      localStorage.setItem('commuteiq_properties', JSON.stringify(MOCK_PROPERTIES));
+    }
+
+    const storedNotifs = localStorage.getItem('commuteiq_notifs');
+    if (storedNotifs) {
+      setNotifications(JSON.parse(storedNotifs));
+    } else {
+      setNotifications(MOCK_NOTIFICATIONS);
+      localStorage.setItem('commuteiq_notifs', JSON.stringify(MOCK_NOTIFICATIONS));
+    }
+    
+    setLoading(false);
+  }, []);
+
+  // Save properties back to local storage whenever they change
+  useEffect(() => {
+    if (!loading) {
+      localStorage.setItem('commuteiq_properties', JSON.stringify(properties));
+    }
+  }, [properties, loading]);
+
+  // Save notifications
+  useEffect(() => {
+    if (!loading) {
+      localStorage.setItem('commuteiq_notifs', JSON.stringify(notifications));
+    }
+  }, [notifications, loading]);
+
   const filteredProperties = useMemo(() => {
     return properties.map(property => {
       let commute = { distance: 0, time: 0 };
@@ -29,17 +64,12 @@ export const AppProvider = ({ children }) => {
       }
       return { ...property, commute };
     }).filter(p => {
-      // 1. Price check
       if (p.price > filters.maxPrice) return false;
-      // 2. Commute check
       if (currentUser?.workplace && p.commute.time > filters.maxCommute) return false;
-      // 3. Expectations check (property expectations must NOT completely reject user settings, simplified to exact match for testing)
       if (filters.expectations.length > 0) {
-        // Here we just test if the property has any of the selected expectations directly
         const hasExpectation = filters.expectations.some(e => p.expectations.includes(e));
         if (!hasExpectation) return false;
       }
-      // 4. Amenities check (must have all selected)
       if (filters.amenities.length > 0) {
         const hasAllAmenities = filters.amenities.every(a => p.amenities.includes(a));
         if (!hasAllAmenities) return false;
@@ -67,18 +97,17 @@ export const AppProvider = ({ children }) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   };
 
-  // Simulate notification when an occupied property becomes available
   const setPropertyStatus = (id, status) => {
     setProperties(prev => prev.map(p => {
       if (p.id === id) {
         if (p.status === 'occupied' && status === 'available') {
-          // Push notification
           setNotifications(nprev => [{
             id: `n_${Date.now()}`,
             type: 'availability',
             propertyId: id,
-            message: `Property "${p.title}" you watched is now available!`,
-            read: false
+            message: `Property "${p.title}" is now available!`,
+            read: false,
+            userId: 'all' // In real app, target specific users.
           }, ...nprev]);
         }
         return { ...p, status };
@@ -86,17 +115,30 @@ export const AppProvider = ({ children }) => {
       return p;
     }));
   };
+  
+  // For owners to add a completely new mock property
+  const addProperty = (propertyData) => {
+    const newProperty = {
+      id: `p_${Date.now()}`,
+      status: 'available',
+      ownerId: currentUser?.id,
+      brokerId: 'u2', // Assign default broker for now
+      reviews: [],
+      images: ['https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=500&auto=format&fit=crop&q=60'],
+      ...propertyData
+    };
+    setProperties(prev => [newProperty, ...prev]);
+  };
 
   return (
     <AppContext.Provider value={{
-      currentUser, setCurrentUser, users: MOCK_USERS,
       properties: filteredProperties, allProperties: properties,
       filters, setFilters,
       compareList, toggleCompare, clearCompare,
       notifications, markNotificationRead,
-      setPropertyStatus
+      setPropertyStatus, addProperty
     }}>
-      {children}
+      {!loading && children}
     </AppContext.Provider>
   );
 };
